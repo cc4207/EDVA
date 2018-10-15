@@ -1,0 +1,164 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Mon Oct 15 14:45:47 2018
+
+@author: cao
+"""
+
+import tensorflow as tf
+tf.enable_eager_execution()
+tfe = tf.contrib.eager
+from keras.constraints import max_norm
+import numpy as np
+import os
+from sklearn.preprocessing import LabelEncoder
+
+os.chdir("/Users/cao/Desktop/tensorboard")
+mnist = tf.keras.datasets.mnist
+
+# Dataset will be cached locally after you run this code
+(x_train, y_train), (x_test, y_test) = mnist.load_data()
+
+# Normalize pixel values to [0, 1]
+x_train, x_test = x_train / 255.0, x_test / 255.0
+
+# These types are required for the operation we use to compute
+# loss. Omit, and you shall receive a cryptic error message.
+y_train = y_train.astype(np.int32)
+y_test = y_test.astype(np.int32)
+#y_train =tf.keras.utils.to_categorical(y_train)
+#y_test = tf.keras.utils.to_categorical(y_test)
+y_train.shape
+
+buffer_size = 5000
+batch_size =100
+
+train_dataset = tf.data.Dataset.from_tensor_slices((x_train, y_train)).shuffle(buffer_size)
+train_dataset = train_dataset.batch(batch_size)
+
+class Model(tf.keras.Model):
+  def __init__(self):
+    super(Model, self).__init__()
+    self.flatten = tf.keras.layers.Flatten()
+    self.dense1 = tf.keras.layers.Dense(10)
+    # FIX ME
+    # add some layers to your model
+  def call(self, x):
+    x = self.flatten(x)
+    # FIX ME
+    # use your layers (don't forget to add activation functions here as well
+    # if you haven't specified them in your layer definintions)
+    x = self.dense1(x)
+    
+    #x = tf.nn.sigmoid(x)
+    return x
+    
+class DeepModel(tf.keras.Model):
+  def __init__(self):
+    super(DeepModel, self).__init__()
+    self.flatten = tf.keras.layers.Flatten()
+    self.dense1 = tf.keras.layers.Dense(32,activation = tf.nn.relu,kernel_regularizer =
+                                        tf.contrib.layers.l2_regularizer(0.1))
+    self.drop = tf.keras.layers.Dropout(0.2)
+    self.dense2 = tf.keras.layers.Dense(32,activation = tf.nn.relu)
+    self.dense3 = tf.keras.layers.Dense(10)
+    
+    # FIX ME
+    # add some layers to your model
+
+  def call(self, x):
+    x = self.flatten(x)
+    x = self.dense1(x)
+    #x = self.drop(x)
+    #x = self.dense2(x)
+    x = self.dense3(x)
+    return x # be sure to return logits, not softmax output
+
+optimizer = tf.train.GradientDescentOptimizer(learning_rate=0.01)
+
+def loss(logitss, labelss):
+  # FIX ME
+  # You will need to modify this function, of course.
+  # Best bet, use tf.nn.sparse_softmax_cross_entropy_with_logits
+  # though if you're interested, you can write your own.
+  lo = tf.nn.sparse_softmax_cross_entropy_with_logits(labels=labelss,logits=logitss )
+  return tf.constant(lo)
+
+
+
+def compute_accuracy(logits, labels):
+  # You shoud not need to modify this function
+  predictions = tf.argmax(logits, axis=1)
+  batch_size = int(logits.shape[0])
+  return tf.reduce_sum(
+      tf.cast(tf.equal(predictions, labels), dtype=tf.float32)) / batch_size
+          
+def train(model, images, labels):
+  # You should not need to modify this function
+  with tf.GradientTape() as tape:
+    logits = model(images)
+    loss_value = loss(logits, labels)  
+  grads = tape.gradient(loss_value, model.variables)
+  optimizer.apply_gradients(zip(grads, model.variables))
+  return loss_value
+
+# The first time you run the below block it will crash
+# with an error 'ValueError: No variables provided.''
+# This is because the call method of your model
+# is not using any trainable variables.
+# (As written, the model just flattens the images.)
+
+model = Model()
+
+epochs = 10
+step_counter = 0
+
+logdir = os.mkdir("logstotal")
+writer = tf.contrib.summary.create_file_writer(logdir="logstotal/exp_1", flush_millis=1000)
+with writer.as_default():
+    with tf.contrib.summary.always_record_summaries():
+        for epoch_n in range(epochs):
+          l = list()
+          print('Epoch #%d' % (epoch_n))
+          for (batch, (images, labels)) in enumerate(train_dataset):
+            loss_value = train(model, images, labels)
+            step_counter +=1
+             
+            recordloss = tf.reduce_mean(loss_value)
+            l.append(recordloss)
+            if step_counter % 100 == 0:
+              print('Step',step_counter,'loss:', recordloss)
+          l.append(recordloss)
+          tf.contrib.summary.scalar("loss", np.mean(l), step=int(epoch_n))
+          test_accuracy = compute_accuracy(model(x_test), y_test)
+          print(step_counter)
+          print('Accuracy #%.2f\n' % (test_accuracy))
+writer.close()
+# $ tensorboard --logdir=logstotal
+
+epochs = 30
+step_counter = 0
+
+model = DeepModel()
+logdir = os.mkdir("Deepmodel")
+writer = tf.contrib.summary.create_file_writer(logdir="Deepmodel/loss_curve", flush_millis=1000)
+with writer.as_default():
+    with tf.contrib.summary.always_record_summaries():
+        for epoch_n in range(epochs):
+          l = list()
+          print('Epoch #%d' % (epoch_n))
+          for (batch, (images, labels)) in enumerate(train_dataset):
+            loss_value = train(model, images, labels)
+            step_counter +=1
+             
+            recordloss = tf.reduce_mean(loss_value)
+            l.append(recordloss)
+            if step_counter % 100 == 0:
+              print('Step',step_counter,'loss:', recordloss)
+          l.append(recordloss)
+          tf.contrib.summary.scalar("loss", np.mean(l), step=int(epoch_n))
+          test_accuracy = compute_accuracy(model(x_test), y_test)
+          print(step_counter)
+          print('Accuracy #%.2f\n' % (test_accuracy))
+writer.close()
